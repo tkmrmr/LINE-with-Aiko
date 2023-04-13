@@ -124,10 +124,15 @@ def callback():
 
 @handler.add(MessageEvent, message=TextMessage)
 def handle_message(event):
-    response = conversation.predict(input=event.message.text)
+    if event.message.text == "リセット":
+        memory.chat_memory.messages = []
+        response = "会話をリセットしました。"
+    else:
+        response = conversation.predict(input=event.message.text)
     line_bot_api.reply_message(
         event.reply_token,
-        TextSendMessage(text=response))
+        TextSendMessage(text=response)
+    )
 
 if __name__ == "__main__":
     app.run()

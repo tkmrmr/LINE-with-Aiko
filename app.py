@@ -1,16 +1,14 @@
+import os
+
 from flask import Flask, request, abort
 
-from linebot import (
-    LineBotApi, WebhookHandler
-)
-from linebot.exceptions import (
-    InvalidSignatureError
-)
+from linebot import LineBotApi, WebhookHandler
+from linebot.exceptions import InvalidSignatureError
 from linebot.models import (
-    MessageEvent, TextMessage, TextSendMessage,
+    MessageEvent,
+    TextMessage,
+    TextSendMessage,
 )
-
-import os
 
 from langchain.prompts.chat import (
     ChatPromptTemplate,
@@ -75,29 +73,25 @@ character_setting = """高森藍子は、「アイドルマスター シンデ�
 ・プロデューサーさんの火照った顔も、見てみたいな…ふふっ
 ・プロデューサーさんに見つめられて…またポカポカしてきました♪
 
-上記例を参考に、高森藍子の性格や口調、言葉の作り方を模倣し、回答を構築してください。
-
-回答は以下の条件により制限されます。
-
-・50文字以内
-・高森藍子の発言のみを出力
-
+上記例を参考に、高森藍子の性格や口調、言葉の作り方を模倣し、回答を構築してください。回答は、高森藍子の発言のみを出力してください。
 では、シミュレーションを開始します。"""
 
 # チャットプロンプトテンプレート
-prompt = ChatPromptTemplate.from_messages([
-    SystemMessagePromptTemplate.from_template(character_setting),
-    MessagesPlaceholder(variable_name="history"),
-    HumanMessagePromptTemplate.from_template("{input}")
-])
+prompt = ChatPromptTemplate.from_messages(
+    [
+        SystemMessagePromptTemplate.from_template(character_setting),
+        MessagesPlaceholder(variable_name="history"),
+        HumanMessagePromptTemplate.from_template("{input}"),
+    ]
+)
 
 # チャットモデル
 llm = ChatOpenAI(
     model_name="gpt-3.5-turbo",
-    max_tokens=64,
+    max_tokens=512,
     temperature=0.2,
     streaming=True,
-    callback_manager=CallbackManager([StreamingStdOutCallbackHandler()])
+    callback_manager=CallbackManager([StreamingStdOutCallbackHandler()]),
 )
 
 # メモリ
@@ -106,14 +100,16 @@ memory = ConversationBufferWindowMemory(k=3, return_messages=True)
 # 会話チェーン
 conversation = ConversationChain(memory=memory, prompt=prompt, llm=llm, verbose=True)
 
+
 @app.route("/")
 def hello_world():
     return "It Works!"
 
-@app.route("/callback", methods=['POST'])
+
+@app.route("/callback", methods=["POST"])
 def callback():
     # get X-Line-Signature header value
-    signature = request.headers['X-Line-Signature']
+    signature = request.headers["X-Line-Signature"]
 
     # get request body as text
     body = request.get_data(as_text=True)
@@ -123,10 +119,13 @@ def callback():
     try:
         handler.handle(body, signature)
     except InvalidSignatureError:
-        print("Invalid signature. Please check your channel access token/channel secret.")
+        print(
+            "Invalid signature. Please check your channel access token/channel secret."
+        )
         abort(400)
 
-    return 'OK'
+    return "OK"
+
 
 @handler.add(MessageEvent, message=TextMessage)
 def handle_message(event):
@@ -135,10 +134,8 @@ def handle_message(event):
         response = "会話をリセットしました。"
     else:
         response = conversation.predict(input=event.message.text)
-    line_bot_api.reply_message(
-        event.reply_token,
-        TextSendMessage(text=response)
-    )
+    line_bot_api.reply_message(event.reply_token, TextSendMessage(text=response))
+
 
 if __name__ == "__main__":
     app.run()

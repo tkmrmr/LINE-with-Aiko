@@ -87,7 +87,7 @@ prompt = ChatPromptTemplate.from_messages(
 
 # チャットモデル
 llm = ChatOpenAI(
-    model_name="gpt-3.5-turbo",
+    model_name="gpt-4",
     max_tokens=512,
     temperature=0.2,
     streaming=True,

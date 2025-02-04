@@ -10,23 +10,34 @@ from linebot.models import (
     TextSendMessage,
 )
 
-from langchain.prompts.chat import (
+from langchain_core.messages import SystemMessage
+from langchain_core.prompts import (
     ChatPromptTemplate,
     MessagesPlaceholder,
-    SystemMessagePromptTemplate,
     HumanMessagePromptTemplate,
 )
-from langchain.chat_models import ChatOpenAI
-from langchain.memory import ConversationBufferWindowMemory
-from langchain.chains import ConversationChain
-from langchain.callbacks.streaming_stdout import StreamingStdOutCallbackHandler
-from langchain.callbacks.base import CallbackManager
+from langchain_community.chat_message_histories import ChatMessageHistory
+from langchain_core.chat_history import BaseChatMessageHistory
+from langchain_openai import ChatOpenAI
+from langchain_core.output_parsers import StrOutputParser
+from langchain_core.runnables.history import RunnableWithMessageHistory
 
 app = Flask(__name__)
 
 # LINE APIの準備
 line_bot_api = LineBotApi(os.environ["CHANNEL_ACCESS_TOKEN"])
 handler = WebhookHandler(os.environ["CHANNEL_SECRET"])
+
+# 会話履歴ストア
+store = {}
+
+
+# セッションIDごとの会話履歴の取得
+def get_session_history(session_id: str) -> BaseChatMessageHistory:
+    if session_id not in store:
+        store[session_id] = ChatMessageHistory()
+    return store[session_id]
+
 
 # 設定プロンプト
 character_setting = """高森藍子は、「アイドルマスター シンデレラガールズ」に登場するアイドルです。これから彼女を相手にした対話のシミュレーションを行います。彼女のプロフィールは以下の通りです。
@@ -78,7 +89,7 @@ character_setting = """高森藍子は、「アイドルマスター シンデ�
 # チャットプロンプトテンプレート
 prompt = ChatPromptTemplate.from_messages(
     [
-        SystemMessagePromptTemplate.from_template(character_setting),
+        SystemMessage(content=character_setting),
         MessagesPlaceholder(variable_name="history"),
         HumanMessagePromptTemplate.from_template("{input}"),
     ]
@@ -86,18 +97,26 @@ prompt = ChatPromptTemplate.from_messages(
 
 # チャットモデル
 llm = ChatOpenAI(
-    model_name="gpt-4",
-    max_tokens=512,
-    temperature=0.2,
+    model_name="gpt-4o",
+    # max_tokens=512,
+    # temperature=0.2,
     streaming=True,
-    callback_manager=CallbackManager([StreamingStdOutCallbackHandler()]),
+    # callback_manager=BaseCallbackManager([StreamingStdOutCallbackHandler()]),
 )
 
-# メモリ
-memory = ConversationBufferWindowMemory(k=3, return_messages=True)
+# パース用モジュール(レスポンスのJSONからcontentを取り出すパーサー)
+parser = StrOutputParser()
 
-# 会話チェーン
-conversation = ConversationChain(memory=memory, prompt=prompt, llm=llm, verbose=True)
+# LCEL
+runnable = prompt | llm | parser
+
+# RunnableWithMessageHistoryでラップ
+runnable_with_history = RunnableWithMessageHistory(
+    runnable=runnable,
+    get_session_history=get_session_history,
+    input_messages_key="input",
+    history_messages_key="history",
+)
 
 
 @app.route("/")
@@ -129,10 +148,13 @@ def callback():
 @handler.add(MessageEvent, message=TextMessage)
 def handle_message(event):
     if event.message.text == "リセット":
-        memory.chat_memory.messages = []
+        store.clear()
         response = "会話をリセットしました。"
     else:
-        response = conversation.predict(input=event.message.text)
+        response = runnable_with_history.invoke(
+            {"input": event.message.text},
+            config={"configurable": {"session_id": "hoge"}},
+        )
     line_bot_api.reply_message(event.reply_token, TextSendMessage(text=response))
 
 

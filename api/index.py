@@ -105,7 +105,7 @@ llm = ChatOpenAI(
 )
 
 # パース用モジュール(レスポンスのJSONからcontentを取り出すパーサー)
-parser = StrOutputParser()
+# parser = StrOutputParser()
 
 # LCEL
 runnable = prompt | llm | parser
